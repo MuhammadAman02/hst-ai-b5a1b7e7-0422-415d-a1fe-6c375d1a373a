@@ -1,96 +1,164 @@
-import os
-import time
-import platform
-import psutil
-from typing import Dict, Any
+"""
+Health check utilities for the Pakistani Bank Fraud Detection System.
+Provides comprehensive system health monitoring.
+"""
 
-from app.core.logging import app_logger
+import time
+import psutil
+import platform
+from typing import Dict, Any
+from app.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger("health")
+
 
 class HealthCheck:
-    """Health check utility for the application.
-    
-    This class provides methods to check the health of various components
-    of the application, focusing on system resources.
-    """
+    """System health check utilities."""
     
     @staticmethod
-    def check_system() -> Dict[str, Any]:
-        """Check system health (CPU, memory, disk, process).
-        
-        Returns:
-            Dict with system health information
-        """
+    def check_system_resources() -> Dict[str, Any]:
+        """Check system resource usage."""
         try:
-            app_logger.info("Starting system health check")
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage(os.getcwd())
-            process = psutil.Process(os.getpid())
-            process_memory_mb = process.memory_info().rss / (1024 * 1024)
+            # CPU usage
+            cpu_percent = psutil.cpu_percent(interval=1)
             
-            result = {
-                "status": "healthy",
-                "cpu": {"percent": cpu_percent, "status": "warning" if cpu_percent > 80 else "healthy"},
-                "memory": {"percent": memory.percent, "status": "warning" if memory.percent > 80 else "healthy"},
-                "disk": {"percent": disk.percent, "status": "warning" if disk.percent > 80 else "healthy"},
-                "process": {"memory_mb": round(process_memory_mb, 2), "status": "warning" if process_memory_mb > 500 else "healthy"},
+            # Memory usage
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            memory_available_gb = memory.available / (1024**3)
+            
+            # Disk usage
+            disk = psutil.disk_usage('/')
+            disk_percent = disk.percent
+            disk_free_gb = disk.free / (1024**3)
+            
+            return {
+                "cpu_usage_percent": cpu_percent,
+                "memory_usage_percent": memory_percent,
+                "memory_available_gb": round(memory_available_gb, 2),
+                "disk_usage_percent": disk_percent,
+                "disk_free_gb": round(disk_free_gb, 2),
+                "status": "healthy" if cpu_percent < 80 and memory_percent < 80 and disk_percent < 90 else "warning"
+            }
+        except Exception as e:
+            logger.error(f"Error checking system resources: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    @staticmethod
+    def check_application_config() -> Dict[str, Any]:
+        """Check application configuration."""
+        try:
+            config_status = {
+                "app_name": settings.app_name,
+                "app_version": settings.app_version,
+                "environment": settings.environment,
+                "debug_mode": settings.debug,
+                "fraud_threshold": settings.fraud_threshold,
+                "max_transaction_amount": settings.max_transaction_amount,
+                "status": "healthy"
+            }
+            
+            # Validate critical settings
+            if settings.is_production and settings.secret_key == "your-secret-key-change-in-production":
+                config_status["status"] = "warning"
+                config_status["warning"] = "Default secret key in production"
+            
+            return config_status
+        except Exception as e:
+            logger.error(f"Error checking application config: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    @staticmethod
+    def check_dependencies() -> Dict[str, Any]:
+        """Check if all required dependencies are available."""
+        required_packages = [
+            'nicegui',
+            'uvicorn',
+            'pydantic',
+            'httpx',
+            'python_dotenv'
+        ]
+        
+        dependency_status = {
+            "required_packages": required_packages,
+            "available_packages": [],
+            "missing_packages": [],
+            "status": "healthy"
+        }
+        
+        for package in required_packages:
+            try:
+                __import__(package.replace('-', '_'))
+                dependency_status["available_packages"].append(package)
+            except ImportError:
+                dependency_status["missing_packages"].append(package)
+        
+        if dependency_status["missing_packages"]:
+            dependency_status["status"] = "error"
+            dependency_status["error"] = f"Missing packages: {', '.join(dependency_status['missing_packages'])}"
+        
+        return dependency_status
+    
+    @staticmethod
+    def check_platform_info() -> Dict[str, Any]:
+        """Get platform and Python version information."""
+        try:
+            return {
                 "platform": platform.platform(),
                 "python_version": platform.python_version(),
+                "architecture": platform.architecture()[0],
+                "processor": platform.processor() or "Unknown",
+                "hostname": platform.node(),
+                "status": "healthy"
             }
-            app_logger.info("System health check completed successfully")
-            return result
         except Exception as e:
-            app_logger.error(f"Error checking system health: {e}")
-            return {"status": "error", "message": str(e)}
+            logger.error(f"Error getting platform info: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
     
     @staticmethod
     def check_all() -> Dict[str, Any]:
-        """Run all health checks.
+        """Perform comprehensive health check."""
+        timestamp = time.time()
         
-        Returns:
-            Dict with all health check information
-        """
-        try:
-            app_logger.info("Starting all health checks")
-            start_time = time.time()
-            
-            system_health = HealthCheck.check_system()
-            
-            overall_status = system_health.get("status", "error")
-            
-            response_time_ms = round((time.time() - start_time) * 1000, 2)
-            
-            result = {
-                "status": overall_status,
-                "timestamp": time.time(),
-                "response_time_ms": response_time_ms,
-                "system": system_health,
+        health_report = {
+            "timestamp": timestamp,
+            "status": "healthy",
+            "checks": {
+                "system_resources": HealthCheck.check_system_resources(),
+                "application_config": HealthCheck.check_application_config(),
+                "dependencies": HealthCheck.check_dependencies(),
+                "platform_info": HealthCheck.check_platform_info()
             }
-            app_logger.info("All health checks completed successfully")
-            return result
-        except Exception as e:
-            app_logger.error(f"Error in check_all: {e}")
-            return {"status": "error", "message": str(e), "timestamp": time.time()}
-
-def is_healthy(component: str = "all") -> bool:
-    """Check if a specific component is healthy.
-    
-    Args:
-        component: The component to check ("system" or "all")
+        }
         
-    Returns:
-        True if the component is healthy, False otherwise
-    """
-    try:
-        app_logger.info(f"Checking health for component: {component}")
-        if component == "system":
-            return HealthCheck.check_system().get("status") == "healthy"
-        elif component == "all":
-            health = HealthCheck.check_all()
-            return health.get("status") == "healthy"
+        # Determine overall status
+        check_statuses = [check["status"] for check in health_report["checks"].values()]
+        
+        if "error" in check_statuses:
+            health_report["status"] = "error"
+        elif "warning" in check_statuses:
+            health_report["status"] = "warning"
         else:
-            app_logger.warning(f"Unknown health component requested: {component}")
-            return False
-    except Exception as e:
-        app_logger.error(f"Error checking health for {component}: {e}")
-        return False
+            health_report["status"] = "healthy"
+        
+        # Log health check result
+        logger.info(f"Health check completed with status: {health_report['status']}")
+        
+        return health_report
+
+
+# Perform initial health check on import
+if __name__ == "__main__":
+    import json
+    health_result = HealthCheck.check_all()
+    print(json.dumps(health_result, indent=2))
