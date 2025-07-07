@@ -4,22 +4,18 @@
 
 # Core Framework
 nicegui
+
+# Web Server
 uvicorn[standard]
 
 # Configuration
 python-dotenv
 
-# Database
-sqlalchemy
-alembic
+# Data Validation (without BaseSettings)
+pydantic
 
-# Machine Learning & Data Processing
-pandas
-scikit-learn
-numpy
+# HTTP Client for external APIs
+httpx
 
-# Data Visualization
-plotly
-
-# Utilities
-python-multipart
+# To verify installation:
+# python -c "import nicegui, uvicorn, dotenv, pydantic, httpx; print('All dependencies installed successfully')"
