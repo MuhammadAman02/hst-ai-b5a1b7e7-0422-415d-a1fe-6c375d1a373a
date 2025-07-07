@@ -1,110 +1,93 @@
+"""
+Logging configuration for the Pakistani Bank Fraud Detection System.
+Provides structured logging with proper formatting and levels.
+"""
+
 import logging
-import os
 import sys
-from logging.handlers import RotatingFileHandler
-from typing import Optional, Dict, Any
+from typing import Optional
+from app.config import settings
 
-# CRITICAL: Always define __all__ at the top of the module to explicitly declare exports
-# This prevents ImportError when other modules try to import specific functions
-__all__ = ["app_logger", "get_logger", "log_structured"]
 
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-# Create a logger for the application
-app_logger = logging.getLogger("app")
-
-# Set the default level
-app_logger.setLevel(logging.INFO)
-
-# Create a formatter
-formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-# Create a console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-app_logger.addHandler(console_handler)
-
-# Create a file handler if LOG_FILE is set in environment
-log_file = os.getenv("LOG_FILE")
-if log_file:
-    # Create logs directory if it doesn't exist
-    log_dir = os.path.dirname(log_file)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colors for different log levels."""
     
-    # Create a rotating file handler (10 MB max size, keep 5 backup files)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,
-    )
-    file_handler.setFormatter(formatter)
-    app_logger.addHandler(file_handler)
+    # ANSI color codes
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m'      # Reset
+    }
+    
+    def format(self, record):
+        # Add color to the log level
+        if record.levelname in self.COLORS:
+            record.levelname = f"{self.COLORS[record.levelname]}{record.levelname}{self.COLORS['RESET']}"
+        
+        return super().format(record)
 
-# Set log level from environment variable if provided
-log_level = os.getenv("LOG_LEVEL", "INFO").upper()
-if log_level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-    app_logger.setLevel(getattr(logging, log_level))
 
-# Helper function to create a logger for a specific module
-def get_logger(name: str, level: Optional[str] = None) -> logging.Logger:
-    """Create a logger for a specific module.
+def setup_logging(
+    name: Optional[str] = None,
+    level: Optional[str] = None,
+    format_string: Optional[str] = None
+) -> logging.Logger:
+    """
+    Set up logging configuration for the application.
     
     Args:
-        name: The name of the module (typically __name__)
-        level: Optional log level override
-        
+        name: Logger name (defaults to app name)
+        level: Log level (defaults to settings.log_level)
+        format_string: Log format (defaults to settings.log_format)
+    
     Returns:
-        A configured logger instance
+        Configured logger instance
     """
-    logger = logging.getLogger(name)
+    logger_name = name or settings.app_name
+    log_level = level or settings.log_level
+    log_format = format_string or settings.log_format
     
-    # Set level from parameter or environment
-    if level and level.upper() in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-        logger.setLevel(getattr(logging, level.upper()))
+    # Create logger
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(getattr(logging, log_level.upper()))
+    
+    # Remove existing handlers to avoid duplicates
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(getattr(logging, log_level.upper()))
+    
+    # Create formatter
+    if settings.is_development:
+        # Use colored formatter for development
+        formatter = ColoredFormatter(log_format)
     else:
-        logger.setLevel(app_logger.level)
+        # Use standard formatter for production
+        formatter = logging.Formatter(log_format)
     
-    # Add handlers if not already present
-    if not logger.handlers:
-        # Add console handler
-        logger.addHandler(console_handler)
-        
-        # Add file handler if available
-        if log_file and 'file_handler' in locals():
-            logger.addHandler(file_handler)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Prevent propagation to root logger
+    logger.propagate = False
     
     return logger
 
-# Helper function to log structured data
-def log_structured(logger: logging.Logger, level: str, message: str, data: Dict[str, Any]) -> None:
-    """Log a message with structured data.
-    
-    Args:
-        logger: The logger instance
-        level: The log level (debug, info, warning, error, critical)
-        message: The log message
-        data: Dictionary of structured data to include
-    """
-    if level.lower() == "debug":
-        logger.debug(f"{message} - {data}")
-    elif level.lower() == "info":
-        logger.info(f"{message} - {data}")
-    elif level.lower() == "warning":
-        logger.warning(f"{message} - {data}")
-    elif level.lower() == "error":
-        logger.error(f"{message} - {data}")
-    elif level.lower() == "critical":
-        logger.critical(f"{message} - {data}")
 
-# CRITICAL: Always explicitly define __all__ at the end of the module as well
-# This ensures it's not forgotten during module updates
-__all__ = ["app_logger", "get_logger", "log_structured"]
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger instance for a specific module."""
+    return logging.getLogger(f"{settings.app_name}.{name}")
+
+
+# Global application logger
+app_logger = setup_logging()
+
+# Log startup message
+app_logger.info(f"🚀 Starting {settings.app_name} v{settings.app_version}")
+app_logger.info(f"📍 Environment: {settings.environment}")
+app_logger.info(f"🔍 Debug Mode: {settings.debug}")
